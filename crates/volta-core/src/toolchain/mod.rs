@@ -1,38 +1,38 @@
-use std::convert::TryFrom;
 use std::fs::write;
 
 use crate::error::{Context, ErrorKind, Fallible};
 use crate::fs::touch;
 use crate::layout::volta_home;
 use crate::platform::PlatformSpec;
-use lazycell::LazyCell;
 use log::debug;
+use node_semver::Version;
+use once_cell::unsync::OnceCell;
 use readext::ReadExt;
-use semver::Version;
 
 pub mod serial;
 
 /// Lazily loaded toolchain
 pub struct LazyToolchain {
-    toolchain: LazyCell<Toolchain>,
+    toolchain: OnceCell<Toolchain>,
 }
 
 impl LazyToolchain {
     /// Creates a new `LazyToolchain`
     pub fn init() -> Self {
         LazyToolchain {
-            toolchain: LazyCell::new(),
+            toolchain: OnceCell::new(),
         }
     }
 
     /// Forces loading of the toolchain and returns an immutable reference to it
     pub fn get(&self) -> Fallible<&Toolchain> {
-        self.toolchain.try_borrow_with(Toolchain::current)
+        self.toolchain.get_or_try_init(Toolchain::current)
     }
 
     /// Forces loading of the toolchain and returns a mutable reference to it
     pub fn get_mut(&mut self) -> Fallible<&mut Toolchain> {
-        self.toolchain.try_borrow_mut_with(Toolchain::current)
+        let _ = self.toolchain.get_or_try_init(Toolchain::current)?;
+        Ok(self.toolchain.get_mut().unwrap())
     }
 }
 
@@ -75,6 +75,7 @@ impl Toolchain {
                 self.platform = Some(PlatformSpec {
                     node: node_version.clone(),
                     npm: None,
+                    pnpm: None,
                     yarn: None,
                 });
                 dirty = true;
@@ -105,6 +106,23 @@ impl Toolchain {
         Ok(())
     }
 
+    /// Set the active pnpm version in the default platform file.
+    pub fn set_active_pnpm(&mut self, pnpm: Option<Version>) -> Fallible<()> {
+        if let Some(platform) = self.platform.as_mut() {
+            if platform.pnpm != pnpm {
+                platform.pnpm = pnpm;
+                self.save()?;
+            }
+        } else if pnpm.is_some() {
+            return Err(ErrorKind::NoDefaultNodeVersion {
+                tool: "pnpm".into(),
+            }
+            .into());
+        }
+
+        Ok(())
+    }
+
     /// Set the active Npm version in the default platform file.
     pub fn set_active_npm(&mut self, npm: Option<Version>) -> Fallible<()> {
         if let Some(platform) = self.platform.as_mut() {
@@ -124,9 +142,9 @@ impl Toolchain {
         let result = match &self.platform {
             Some(platform) => {
                 let src = serial::Platform::of(platform).into_json()?;
-                write(&path, src)
+                write(path, src)
             }
-            None => write(&path, "{}"),
+            None => write(path, "{}"),
         };
         result.with_context(|| ErrorKind::WritePlatformError {
             file: path.to_owned(),

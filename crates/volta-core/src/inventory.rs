@@ -11,7 +11,7 @@ use crate::layout::volta_home;
 use crate::tool::PackageConfig;
 use crate::version::parse_version;
 use log::debug;
-use semver::Version;
+use node_semver::Version;
 use walkdir::WalkDir;
 
 /// Checks if a given Node version image is available on the local machine
@@ -38,6 +38,16 @@ pub fn npm_versions() -> Fallible<BTreeSet<Version>> {
     volta_home().and_then(|home| read_versions(home.npm_image_root_dir()))
 }
 
+/// Checks if a given pnpm version image is available on the local machine
+pub fn pnpm_available(version: &Version) -> Fallible<bool> {
+    volta_home().map(|home| home.pnpm_image_dir(&version.to_string()).exists())
+}
+
+/// Collects a set of all pnpm versions fetched on the local machine
+pub fn pnpm_versions() -> Fallible<BTreeSet<Version>> {
+    volta_home().and_then(|home| read_versions(home.pnpm_image_root_dir()))
+}
+
 /// Checks if a given Yarn version image is available on the local machine
 pub fn yarn_available(version: &Version) -> Fallible<bool> {
     volta_home().map(|home| home.yarn_image_dir(&version.to_string()).exists())
@@ -52,7 +62,7 @@ pub fn yarn_versions() -> Fallible<BTreeSet<Version>> {
 pub fn package_configs() -> Fallible<BTreeSet<PackageConfig>> {
     let package_dir = volta_home()?.default_package_dir();
 
-    WalkDir::new(&package_dir)
+    WalkDir::new(package_dir)
         .max_depth(2)
         .into_iter()
         // Ignore any items which didn't resolve as `DirEntry` correctly.
@@ -77,8 +87,8 @@ pub fn package_configs() -> Fallible<BTreeSet<PackageConfig>> {
                 None
             }
         })
-        .map(|file_path| PackageConfig::from_file(&file_path))
-        .collect::<Fallible<BTreeSet<PackageConfig>>>()
+        .map(PackageConfig::from_file)
+        .collect()
 }
 
 /// Reads the contents of a directory and returns the set of all versions found

@@ -6,12 +6,12 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use cfg_if::cfg_if;
-use hyperx::header::HttpDate;
+use headers::{Expires, Header};
 use mockito::{self, mock, Matcher};
-use semver::Version;
+use node_semver::Version;
 use test_support::{self, ok_or_panic, paths, paths::PathExt, process::ProcessBuilder};
 use volta_core::fs::{set_executable, symlink_file};
-use volta_core::tool::{Node, Yarn, NODE_DISTRO_ARCH, NODE_DISTRO_EXTENSION, NODE_DISTRO_OS};
+use volta_core::tool::{Node, Pnpm, Yarn};
 
 // version cache for node and yarn
 #[derive(PartialEq, Clone)]
@@ -44,11 +44,18 @@ impl CacheBuilder {
 
         // write expiry file
         let one_day = Duration::from_secs(24 * 60 * 60);
-        let expiry_date = HttpDate::from(if self.expired {
+        let expiry_date = Expires::from(if self.expired {
             SystemTime::now() - one_day
         } else {
             SystemTime::now() + one_day
         });
+
+        let mut header_values = Vec::with_capacity(1);
+        expiry_date.encode(&mut header_values);
+        // Since we just `.encode()`d into `header_values, it is guaranteed to
+        // have a `.first()`.
+        let encoded_expiry_date = header_values.first().unwrap();
+
         let mut expiry_file = File::create(&self.expiry_path).unwrap_or_else(|e| {
             panic!(
                 "could not create cache expiry file {}: {}",
@@ -56,7 +63,7 @@ impl CacheBuilder {
                 e
             )
         });
-        ok_or_panic! { expiry_file.write_all(expiry_date.to_string().as_bytes()) };
+        ok_or_panic! { expiry_file.write_all(encoded_expiry_date.as_bytes()) };
     }
 
     fn dirname(&self) -> &Path {
@@ -80,7 +87,7 @@ impl EnvVar {
 }
 
 // used to construct sandboxed files like package.json, platform.json, etc.
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Eq, Clone)]
 pub struct FileBuilder {
     path: PathBuf,
     contents: String,
@@ -169,6 +176,10 @@ pub struct NpmFixture {
     pub metadata: DistroMetadata,
 }
 
+pub struct PnpmFixture {
+    pub metadata: DistroMetadata,
+}
+
 pub struct Yarn1Fixture {
     pub metadata: DistroMetadata,
 }
@@ -189,6 +200,12 @@ impl From<DistroMetadata> for NpmFixture {
     }
 }
 
+impl From<DistroMetadata> for PnpmFixture {
+    fn from(metadata: DistroMetadata) -> Self {
+        Self { metadata }
+    }
+}
+
 impl From<DistroMetadata> for Yarn1Fixture {
     fn from(metadata: DistroMetadata) -> Self {
         Self { metadata }
@@ -203,19 +220,15 @@ impl From<DistroMetadata> for YarnBerryFixture {
 
 impl DistroFixture for NodeFixture {
     fn server_path(&self) -> String {
-        let version = &self.metadata.version;
-        format!(
-            "/v{}/node-v{}-{}-{}.{}",
-            version, version, NODE_DISTRO_OS, NODE_DISTRO_ARCH, NODE_DISTRO_EXTENSION
-        )
+        let version = Version::parse(self.metadata.version).unwrap();
+        let filename = Node::archive_filename(&version);
+        format!("/v{version}/{filename}")
     }
 
     fn fixture_path(&self) -> String {
-        let version = &self.metadata.version;
-        format!(
-            "tests/fixtures/node-v{}-{}-{}.{}",
-            version, NODE_DISTRO_OS, NODE_DISTRO_ARCH, NODE_DISTRO_EXTENSION
-        )
+        let version = Version::parse(self.metadata.version).unwrap();
+        let filename = Node::archive_filename(&version);
+        format!("tests/fixtures/{filename}")
     }
 
     fn metadata(&self) -> &DistroMetadata {
@@ -230,6 +243,20 @@ impl DistroFixture for NpmFixture {
 
     fn fixture_path(&self) -> String {
         format!("tests/fixtures/npm-{}.tgz", self.metadata.version)
+    }
+
+    fn metadata(&self) -> &DistroMetadata {
+        &self.metadata
+    }
+}
+
+impl DistroFixture for PnpmFixture {
+    fn server_path(&self) -> String {
+        format!("/pnpm/-/pnpm-{}.tgz", self.metadata.version)
+    }
+
+    fn fixture_path(&self) -> String {
+        format!("tests/fixtures/pnpm-{}.tgz", self.metadata.version)
     }
 
     fn metadata(&self) -> &DistroMetadata {
@@ -288,6 +315,7 @@ impl SandboxBuilder {
             path_dirs: vec![volta_bin_dir()],
             shims: vec![
                 ShimBuilder::new("npm".to_string()),
+                ShimBuilder::new("pnpm".to_string()),
                 ShimBuilder::new("yarn".to_string()),
             ],
             has_exec_path: false,
@@ -384,6 +412,18 @@ impl SandboxBuilder {
         self
     }
 
+    /// Setup mock to return the available pnpm versions (chainable)
+    pub fn pnpm_available_versions(mut self, body: &str) -> Self {
+        let mock = mock("GET", "/pnpm")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(body)
+            .create();
+        self.root.mocks.push(mock);
+
+        self
+    }
+
     /// Setup mock to return a 404 for any GET request
     /// Note: Mocks are matched in reverse order, so any created _after_ this will work
     ///       While those created before will not
@@ -412,7 +452,7 @@ impl SandboxBuilder {
 
             let range_mock = mock("GET", &server_path[..])
                 .match_header("Range", Matcher::Any)
-                .with_body(&uncompressed_size_bytes)
+                .with_body(uncompressed_size_bytes)
                 .create();
             self.root.mocks.push(range_mock);
         }
@@ -420,7 +460,7 @@ impl SandboxBuilder {
         let file_mock = mock("GET", &server_path[..])
             .match_header("Range", Matcher::Missing)
             .with_header("Accept-Ranges", "bytes")
-            .with_body_from_file(&fixture_path)
+            .with_body_from_file(fixture_path)
             .create();
         self.root.mocks.push(file_mock);
 
@@ -458,6 +498,23 @@ impl SandboxBuilder {
         self.files
             .push(FileBuilder::new(file_name, contents).make_executable());
         self.add_exec_dir_to_path()
+    }
+
+    /// Prepend executable directory to the beginning of the PATH (chainable)
+    ///
+    /// This is useful to test binaries shadowing volta shims.
+    ///
+    /// Cannot be used in combination with `add_exec_dir_to_path`, and will panic if called twice.
+    /// No particular reason except it's likely a programming error.
+    pub fn prepend_exec_dir_to_path(mut self) -> Self {
+        if self.has_exec_path {
+            panic!("need to call prepend_exec_dir_to_path before anything else");
+        }
+
+        let exec_path = self.root().join("exec");
+        self.path_dirs.insert(0, exec_path);
+        self.has_exec_path = true;
+        self
     }
 
     /// Set a package config file for the sandbox (chainable)
@@ -571,6 +628,21 @@ impl SandboxBuilder {
         self
     }
 
+    /// Write an executable pnpm binary with the input contents (chainable)
+    pub fn setup_pnpm_binary(mut self, version: &str, contents: &str) -> Self {
+        cfg_if! {
+            if #[cfg(target_os = "windows")] {
+                let pnpm_file = "pnpm.cmd";
+            } else {
+                let pnpm_file = "pnpm";
+            }
+        }
+        let pnpm_bin_file = pnpm_image_dir(version).join("bin").join(pnpm_file);
+        self.files
+            .push(FileBuilder::new(pnpm_bin_file, contents).make_executable());
+        self
+    }
+
     /// Write an executable yarn binary with the input contents (chainable)
     pub fn setup_yarn_binary(mut self, version: &str, contents: &str) -> Self {
         cfg_if! {
@@ -622,6 +694,7 @@ impl SandboxBuilder {
         ok_or_panic! { fs::create_dir_all(node_cache_dir()) };
         ok_or_panic! { fs::create_dir_all(node_inventory_dir()) };
         ok_or_panic! { fs::create_dir_all(package_inventory_dir()) };
+        ok_or_panic! { fs::create_dir_all(pnpm_inventory_dir()) };
         ok_or_panic! { fs::create_dir_all(yarn_inventory_dir()) };
         ok_or_panic! { fs::create_dir_all(volta_tmp_dir()) };
 
@@ -687,6 +760,9 @@ fn image_dir() -> PathBuf {
 fn node_inventory_dir() -> PathBuf {
     inventory_dir().join("node")
 }
+fn pnpm_inventory_dir() -> PathBuf {
+    inventory_dir().join("pnpm")
+}
 fn yarn_inventory_dir() -> PathBuf {
     inventory_dir().join("yarn")
 }
@@ -728,6 +804,9 @@ fn node_image_dir(version: &str) -> PathBuf {
 }
 fn npm_image_dir(version: &str) -> PathBuf {
     image_dir().join("npm").join(version)
+}
+fn pnpm_image_dir(version: &str) -> PathBuf {
+    image_dir().join("pnpm").join(version)
 }
 fn yarn_image_dir(version: &str) -> PathBuf {
     image_dir().join("yarn").join(version)
@@ -797,7 +876,7 @@ impl Sandbox {
     /// Example:
     ///     assert_that(p.volta("use node 9.5"), execs());
     pub fn volta(&self, cmd: &str) -> ProcessBuilder {
-        let mut p = self.process(&volta_exe());
+        let mut p = self.process(volta_exe());
         split_and_add_args(&mut p, cmd);
         p
     }
@@ -808,6 +887,14 @@ impl Sandbox {
     ///     assert_that(p.npm("install ember-cli"), execs());
     pub fn npm(&self, cmd: &str) -> ProcessBuilder {
         self.exec_shim("npm", cmd)
+    }
+
+    /// Create a `ProcessBuilder` to run the volta pnpm shim.
+    /// Arguments can be separated by spaces.
+    /// Example:
+    ///     assert_that(p.pnpm("add ember-cli"), execs());
+    pub fn pnpm(&self, cmd: &str) -> ProcessBuilder {
+        self.exec_shim("pnpm", cmd)
     }
 
     /// Create a `ProcessBuilder` to run the volta yarn shim.
@@ -846,6 +933,12 @@ impl Sandbox {
     pub fn node_inventory_archive_exists(&self, version: &Version) -> bool {
         node_inventory_dir()
             .join(Node::archive_filename(version))
+            .exists()
+    }
+
+    pub fn pnpm_inventory_archive_exists(&self, version: &str) -> bool {
+        pnpm_inventory_dir()
+            .join(Pnpm::archive_filename(version))
             .exists()
     }
 

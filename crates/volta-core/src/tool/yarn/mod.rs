@@ -1,15 +1,15 @@
 use std::fmt::{self, Display};
 
 use super::{
-    check_fetched, debug_already_fetched, info_fetched, info_installed, info_pinned,
-    info_project_version, FetchStatus, Tool,
+    check_fetched, check_shim_reachable, debug_already_fetched, info_fetched, info_installed,
+    info_pinned, info_project_version, FetchStatus, Tool,
 };
 use crate::error::{ErrorKind, Fallible};
 use crate::inventory::yarn_available;
 use crate::session::Session;
 use crate::style::tool_version;
 use crate::sync::VoltaLock;
-use semver::Version;
+use node_semver::Version;
 
 mod fetch;
 mod metadata;
@@ -62,11 +62,12 @@ impl Tool for Yarn {
             .toolchain_mut()?
             .set_active_yarn(Some(self.version.clone()))?;
 
-        info_installed(self);
+        info_installed(&self);
+        check_shim_reachable("yarn");
 
         if let Ok(Some(project)) = session.project_platform() {
             if let Some(yarn) = &project.yarn {
-                info_project_version(tool_version("yarn", yarn));
+                info_project_version(tool_version("yarn", yarn), &self);
             }
         }
         Ok(())

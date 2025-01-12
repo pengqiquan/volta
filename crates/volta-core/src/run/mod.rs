@@ -7,8 +7,9 @@ use std::process::ExitStatus;
 use crate::error::{ErrorKind, Fallible};
 use crate::platform::{CliPlatform, Image, Sourced};
 use crate::session::Session;
+use crate::VOLTA_FEATURE_PNPM;
 use log::debug;
-use semver::Version;
+use node_semver::Version;
 
 pub mod binary;
 mod executor;
@@ -16,12 +17,13 @@ mod node;
 mod npm;
 mod npx;
 mod parser;
+mod pnpm;
 mod yarn;
 
 /// Environment variable set internally when a shim has been executed and the context evaluated
 ///
 /// This is set when executing a shim command. If this is already, then the built-in shims (Node,
-/// npm, npx, and Yarn) will assume that the context has already been evaluated & the PATH has
+/// npm, npx, pnpm and Yarn) will assume that the context has already been evaluated & the PATH has
 /// already been modified, so they will use the pass-through behavior.
 ///
 /// Shims should only be called recursively when the environment is misconfigured, so this will
@@ -84,7 +86,17 @@ fn get_executor(
             Some("node") => node::command(args, session),
             Some("npm") => npm::command(args, session),
             Some("npx") => npx::command(args, session),
-            Some("yarn") => yarn::command(args, session),
+            Some("pnpm") => {
+                // If the pnpm feature flag variable is set, delegate to the pnpm handler
+                // If not, use the binary handler as a fallback (prior to pnpm support, installing
+                // pnpm would be handled the same as any other global binary)
+                if env::var_os(VOLTA_FEATURE_PNPM).is_some() {
+                    pnpm::command(args, session)
+                } else {
+                    binary::command(exe, args, session)
+                }
+            }
+            Some("yarn") | Some("yarnpkg") => yarn::command(args, session),
             _ => binary::command(exe, args, session),
         }
     }
@@ -126,6 +138,7 @@ fn debug_active_image(image: &Image) {
         "Active Image:
     Node: {}
     npm: {}
+    pnpm: {}
     Yarn: {}",
         format_tool_version(&image.node),
         image
@@ -134,6 +147,11 @@ fn debug_active_image(image: &Image) {
             .as_ref()
             .map(format_tool_version)
             .unwrap_or_else(|| "Bundled with Node".into()),
+        image
+            .pnpm
+            .as_ref()
+            .map(format_tool_version)
+            .unwrap_or_else(|| "None".into()),
         image
             .yarn
             .as_ref()

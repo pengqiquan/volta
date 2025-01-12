@@ -1,3 +1,41 @@
+# Version 2.0.2
+
+- Dependency updates
+- Improvements to header handling for HTTP requests (#1822, #1877)
+
+# Version 2.0.1
+
+- Improved accuracy of Node download progress bar on Windows (#1833)
+- You should no longer run into errors about needing the VC++ Runtime on Windows (#1844)
+- The data provided when installing a new Node version is now more relevant and accurate (#1846, #1848)
+- Increased performance to make Volta even more responsive in typical use (#1849)
+- `volta run` will now correctly handle flags in more situations (#1857)
+
+# Version 2.0.0
+
+- 🚨 (BREAKING) 🚨 We upgraded the version of Rust used to build Volta, which drops support for older versions of glibc & Linux kernel. See [the Rust announcement from August 2022](https://blog.rust-lang.org/2022/08/01/Increasing-glibc-kernel-requirements.html) for details about the supported versions. Notably, this means that we no longer support CentOS 6 (#1611)
+- 🚨 (BREAKING) 🚨 Due to costs and changes in the code signing process, we have dropped the code signing for the Windows installer. We now recommend using `winget` to install Volta on Windows (#1650)
+- 🎉 (NEW) 🎉 We now ship a pre-built binary for ARM Linux & ARM Windows (#1696, #1801)
+- Volta no longer requires Developer Mode to be enabled on Windows (#1755)
+- `volta uninstall` now provides better help & error messages to describe its use and limitations (#1628, #1786)
+- Volta will now use a universal binary on Mac, rather than separate Intel- & ARM-specific builds (#1635)
+- Switched to installing profile scripts into `.zshenv` by default, rather than `.zshrc` (#1657)
+- Added a default shim for the `yarnpkg` command, which is an alias of `yarn` (#1670)
+- Added a new `--very-verbose` flag to enable even more logging (note: we haven't yet implemented much additional logging) (#1815)
+- Simplified the fetching process to remove an extra network request and resolve hangs (#1812)
+- Several dependency upgrades and clean-up refactors from @tottoto
+
+# Version 1.1.1
+
+- Experimental support for pnpm (requires `VOLTA_FEATURE_PNPM` environment variable) (#1273)
+- Fix to correctly import native root certificates (#1375)
+- Better detection of executables provided by `yarn` (#1388, #1393)
+
+# Version 1.1.0
+
+- Added support for pinning / installing Yarn 3+ (#1305)
+- Improved portability and installer effectiveness by removing dependency on OpenSSL (#1214)
+
 # Version 1.0.8
 
 - Fix for malformed `bin` entries when installing global packages (#997)

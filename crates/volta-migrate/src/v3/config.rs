@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::path::Path;
 
-use semver::Version;
+use node_semver::Version;
 use volta_core::platform::PlatformSpec;
 use volta_core::version::{option_version_serde, version_serde};
 
@@ -42,6 +42,8 @@ impl From<LegacyPlatform> for PlatformSpec {
         PlatformSpec {
             node: config_platform.node.runtime,
             npm: config_platform.node.npm,
+            // LegacyPlatform (layout.v2) doesn't have a pnpm field
+            pnpm: None,
             yarn: config_platform.yarn,
         }
     }

@@ -22,28 +22,17 @@ jobs:
       RUST_BACKTRACE: full
     steps:
       - name: Check out code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
       - name: Set up cargo
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-          components: clippy
+        uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: Run tests
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --all --features mock-network
+        run: |
+          cargo test --all --features mock-network
       - name: Lint with clippy
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
+        run: cargo clippy
       - name: Lint tests with clippy
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: --tests --features mock-network
+        run: |
+          cargo clippy --tests --features mock-network
 
   smoke-tests:
     name: Smoke Tests
@@ -52,18 +41,12 @@ jobs:
       RUST_BACKTRACE: full
     steps:
       - name: Check out code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
       - name: Set up cargo
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
+        uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: Run tests
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --test smoke --features smoke-tests -- --test-threads 1
+        run: |
+          cargo test --test smoke --features smoke-tests -- --test-threads 1
 
   shell-tests:
     name: Shell Script Tests
@@ -72,7 +55,7 @@ jobs:
       - name: Setup BATS
         run: sudo npm install -g bats
       - name: Check out code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
       - name: Run tests
         run: bats dev/unix/tests/
 
@@ -81,16 +64,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
       - name: Set up cargo
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-          components: rustfmt
+        uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: Run check
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all --quiet -- --check
+        run: |
+          cargo fmt --all --quiet -- --check
+
+  validate-installer-checksum:
+    name: Validate installer checksum
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+      - name: Run check
+        run: |
+          cd dev/unix
+          sha256sum --check SHASUMS256.txt

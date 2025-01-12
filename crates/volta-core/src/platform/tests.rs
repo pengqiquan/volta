@@ -2,7 +2,7 @@ use super::*;
 use crate::layout::volta_home;
 #[cfg(windows)]
 use crate::layout::volta_install;
-use semver::Version;
+use node_semver::Version;
 #[cfg(windows)]
 use std::path::PathBuf;
 
@@ -15,197 +15,144 @@ fn test_paths() {
 }
 
 #[cfg(unix)]
-fn test_image_path() {
-    let starting_path = format!(
-        "/usr/bin:/blah:{}:/doesnt/matter/bin",
+fn build_test_path() -> String {
+    format!(
+        "{}:/usr/bin:/bin",
         volta_home().unwrap().shim_dir().to_string_lossy()
-    );
-    std::env::set_var("PATH", &starting_path);
-
-    let node_bin = volta_home().unwrap().node_image_bin_dir("1.2.3");
-    let expected_node_bin = node_bin.to_str().unwrap();
-
-    let npm_bin = volta_home().unwrap().npm_image_bin_dir("6.4.3");
-    let expected_npm_bin = npm_bin.to_str().unwrap();
-
-    let yarn_bin = volta_home().unwrap().yarn_image_bin_dir("4.5.7");
-    let expected_yarn_bin = yarn_bin.to_str().unwrap();
-
-    let v123 = Version::parse("1.2.3").unwrap();
-    let v457 = Version::parse("4.5.7").unwrap();
-    let v643 = Version::parse("6.4.3").unwrap();
-
-    let only_node = Image {
-        node: Sourced::with_default(v123.clone()),
-        npm: None,
-        yarn: None,
-    };
-
-    assert_eq!(
-        only_node.path().unwrap().into_string().unwrap(),
-        format!("{}:{}", expected_node_bin, starting_path)
-    );
-
-    let node_npm = Image {
-        node: Sourced::with_default(v123.clone()),
-        npm: Some(Sourced::with_default(v643.clone())),
-        yarn: None,
-    };
-
-    assert_eq!(
-        node_npm.path().unwrap().into_string().unwrap(),
-        format!(
-            "{}:{}:{}",
-            expected_npm_bin, expected_node_bin, starting_path
-        )
-    );
-
-    let node_yarn = Image {
-        node: Sourced::with_default(v123.clone()),
-        npm: None,
-        yarn: Some(Sourced::with_default(v457.clone())),
-    };
-
-    assert_eq!(
-        node_yarn.path().unwrap().into_string().unwrap(),
-        format!(
-            "{}:{}:{}",
-            expected_yarn_bin, expected_node_bin, starting_path
-        )
-    );
-
-    let node_npm_yarn = Image {
-        node: Sourced::with_default(v123),
-        npm: Some(Sourced::with_default(v643)),
-        yarn: Some(Sourced::with_default(v457)),
-    };
-
-    assert_eq!(
-        node_npm_yarn.path().unwrap().into_string().unwrap(),
-        format!(
-            "{}:{}:{}:{}",
-            expected_npm_bin, expected_yarn_bin, expected_node_bin, starting_path
-        )
-    );
-}
-
-#[cfg(windows)]
-fn test_image_path() {
-    let pathbufs = vec![
-        volta_home().unwrap().shim_dir().to_owned(),
-        PathBuf::from("C:\\\\somebin"),
-        volta_install().unwrap().root().to_owned(),
-        PathBuf::from("D:\\\\ProbramFlies"),
-    ];
-
-    let path_with_shims = std::env::join_paths(pathbufs.iter())
-        .unwrap()
-        .into_string()
-        .expect("Could not create path containing shim dir");
-
-    std::env::set_var("PATH", &path_with_shims);
-
-    let node_bin = volta_home().unwrap().node_image_bin_dir("1.2.3");
-    let expected_node_bin = node_bin.to_str().unwrap();
-
-    let npm_bin = volta_home().unwrap().npm_image_bin_dir("6.4.3");
-    let expected_npm_bin = npm_bin.to_str().unwrap();
-
-    let yarn_bin = volta_home().unwrap().yarn_image_bin_dir("4.5.7");
-    let expected_yarn_bin = yarn_bin.to_str().unwrap();
-
-    let v123 = Version::parse("1.2.3").unwrap();
-    let v457 = Version::parse("4.5.7").unwrap();
-    let v643 = Version::parse("6.4.3").unwrap();
-
-    let only_node = Image {
-        node: Sourced::with_default(v123.clone()),
-        npm: None,
-        yarn: None,
-    };
-
-    assert_eq!(
-        only_node.path().unwrap().into_string().unwrap(),
-        format!("{};{}", expected_node_bin, path_with_shims),
-    );
-
-    let node_npm = Image {
-        node: Sourced::with_default(v123.clone()),
-        npm: Some(Sourced::with_default(v643.clone())),
-        yarn: None,
-    };
-
-    assert_eq!(
-        node_npm.path().unwrap().into_string().unwrap(),
-        format!(
-            "{};{};{}",
-            expected_npm_bin, expected_node_bin, path_with_shims
-        )
-    );
-
-    let node_yarn = Image {
-        node: Sourced::with_default(v123.clone()),
-        npm: None,
-        yarn: Some(Sourced::with_default(v457.clone())),
-    };
-
-    assert_eq!(
-        node_yarn.path().unwrap().into_string().unwrap(),
-        format!(
-            "{};{};{}",
-            expected_yarn_bin, expected_node_bin, path_with_shims
-        )
-    );
-
-    let node_npm_yarn = Image {
-        node: Sourced::with_default(v123),
-        npm: Some(Sourced::with_default(v643)),
-        yarn: Some(Sourced::with_default(v457)),
-    };
-
-    assert_eq!(
-        node_npm_yarn.path().unwrap().into_string().unwrap(),
-        format!(
-            "{};{};{};{}",
-            expected_npm_bin, expected_yarn_bin, expected_node_bin, path_with_shims
-        )
     )
 }
 
-#[cfg(unix)]
-fn test_system_path() {
-    std::env::set_var(
-        "PATH",
-        format!(
-            "{}:/usr/bin:/bin",
-            volta_home().unwrap().shim_dir().to_string_lossy()
-        ),
-    );
-
-    let expected_path = String::from("/usr/bin:/bin");
-
-    assert_eq!(
-        System::path().unwrap().into_string().unwrap(),
-        expected_path
-    );
-}
-
 #[cfg(windows)]
-fn test_system_path() {
+fn build_test_path() -> String {
     let pathbufs = vec![
         volta_home().unwrap().shim_dir().to_owned(),
         PathBuf::from("C:\\\\somebin"),
         volta_install().unwrap().root().to_owned(),
         PathBuf::from("D:\\\\ProbramFlies"),
     ];
-
-    let path_with_shims = std::env::join_paths(pathbufs.iter())
+    std::env::join_paths(pathbufs.iter())
         .unwrap()
         .into_string()
-        .expect("Could not create path containing shim dir");
+        .expect("Could not create path containing shim dir")
+}
 
-    std::env::set_var("PATH", path_with_shims);
+fn test_image_path() {
+    #[cfg(unix)]
+    let path_delimiter = ":";
+    #[cfg(windows)]
+    let path_delimiter = ";";
+    let path = build_test_path();
+    std::env::set_var("PATH", &path);
 
+    let node_bin = volta_home().unwrap().node_image_bin_dir("1.2.3");
+    let expected_node_bin = node_bin.to_str().unwrap();
+
+    let npm_bin = volta_home().unwrap().npm_image_bin_dir("6.4.3");
+    let expected_npm_bin = npm_bin.to_str().unwrap();
+
+    let pnpm_bin = volta_home().unwrap().pnpm_image_bin_dir("7.7.1");
+    let expected_pnpm_bin = pnpm_bin.to_str().unwrap();
+
+    let yarn_bin = volta_home().unwrap().yarn_image_bin_dir("4.5.7");
+    let expected_yarn_bin = yarn_bin.to_str().unwrap();
+
+    let v123 = Version::parse("1.2.3").unwrap();
+    let v457 = Version::parse("4.5.7").unwrap();
+    let v643 = Version::parse("6.4.3").unwrap();
+    let v771 = Version::parse("7.7.1").unwrap();
+
+    let only_node = Image {
+        node: Sourced::with_default(v123.clone()),
+        npm: None,
+        pnpm: None,
+        yarn: None,
+    };
+
+    assert_eq!(
+        only_node.path().unwrap().into_string().unwrap(),
+        [expected_node_bin, &path].join(path_delimiter)
+    );
+
+    let node_npm = Image {
+        node: Sourced::with_default(v123.clone()),
+        npm: Some(Sourced::with_default(v643.clone())),
+        pnpm: None,
+        yarn: None,
+    };
+
+    assert_eq!(
+        node_npm.path().unwrap().into_string().unwrap(),
+        [expected_npm_bin, expected_node_bin, &path].join(path_delimiter)
+    );
+
+    let node_pnpm = Image {
+        node: Sourced::with_default(v123.clone()),
+        npm: None,
+        pnpm: Some(Sourced::with_default(v771.clone())),
+        yarn: None,
+    };
+
+    assert_eq!(
+        node_pnpm.path().unwrap().into_string().unwrap(),
+        [expected_pnpm_bin, expected_node_bin, &path].join(path_delimiter)
+    );
+
+    let node_yarn = Image {
+        node: Sourced::with_default(v123.clone()),
+        npm: None,
+        pnpm: None,
+        yarn: Some(Sourced::with_default(v457.clone())),
+    };
+
+    assert_eq!(
+        node_yarn.path().unwrap().into_string().unwrap(),
+        [expected_yarn_bin, expected_node_bin, &path].join(path_delimiter)
+    );
+
+    let node_npm_pnpm = Image {
+        node: Sourced::with_default(v123.clone()),
+        npm: Some(Sourced::with_default(v643.clone())),
+        pnpm: Some(Sourced::with_default(v771)),
+        yarn: None,
+    };
+
+    assert_eq!(
+        node_npm_pnpm.path().unwrap().into_string().unwrap(),
+        [
+            expected_npm_bin,
+            expected_pnpm_bin,
+            expected_node_bin,
+            &path
+        ]
+        .join(path_delimiter)
+    );
+
+    let node_npm_yarn = Image {
+        node: Sourced::with_default(v123),
+        npm: Some(Sourced::with_default(v643)),
+        pnpm: None,
+        yarn: Some(Sourced::with_default(v457)),
+    };
+
+    assert_eq!(
+        node_npm_yarn.path().unwrap().into_string().unwrap(),
+        [
+            expected_npm_bin,
+            expected_yarn_bin,
+            expected_node_bin,
+            &path
+        ]
+        .join(path_delimiter)
+    );
+}
+
+fn test_system_path() {
+    let path = build_test_path();
+    std::env::set_var("PATH", path);
+
+    #[cfg(unix)]
+    let expected_path = String::from("/usr/bin:/bin");
+    #[cfg(windows)]
     let expected_path = String::from("C:\\\\somebin;D:\\\\ProbramFlies");
 
     assert_eq!(
@@ -267,14 +214,29 @@ mod inherit_option {
 }
 
 mod cli_platform {
-    use lazy_static::lazy_static;
-    use semver::Version;
+    use node_semver::Version;
 
-    lazy_static! {
-        static ref NODE_VERSION: Version = Version::from((12, 14, 1));
-        static ref NPM_VERSION: Version = Version::from((6, 13, 2));
-        static ref YARN_VERSION: Version = Version::from((1, 17, 0));
-    }
+    const NODE_VERSION: Version = Version {
+        major: 12,
+        minor: 14,
+        patch: 1,
+        build: Vec::new(),
+        pre_release: Vec::new(),
+    };
+    const NPM_VERSION: Version = Version {
+        major: 6,
+        minor: 13,
+        patch: 2,
+        build: Vec::new(),
+        pre_release: Vec::new(),
+    };
+    const YARN_VERSION: Version = Version {
+        major: 1,
+        minor: 17,
+        patch: 0,
+        build: Vec::new(),
+        pre_release: Vec::new(),
+    };
 
     mod merge {
         use super::super::super::*;
@@ -283,20 +245,22 @@ mod cli_platform {
         #[test]
         fn uses_node() {
             let test = CliPlatform {
-                node: Some(NODE_VERSION.clone()),
+                node: Some(NODE_VERSION),
                 npm: InheritOption::default(),
+                pnpm: InheritOption::default(),
                 yarn: InheritOption::default(),
             };
 
             let base = Platform {
                 node: Sourced::with_default(Version::from((10, 10, 10))),
                 npm: None,
+                pnpm: None,
                 yarn: None,
             };
 
             let merged = test.merge(base);
 
-            assert_eq!(merged.node.value, NODE_VERSION.clone());
+            assert_eq!(merged.node.value, NODE_VERSION);
             assert_eq!(merged.node.source, Source::CommandLine);
         }
 
@@ -305,74 +269,82 @@ mod cli_platform {
             let test = CliPlatform {
                 node: None,
                 npm: InheritOption::default(),
+                pnpm: InheritOption::default(),
                 yarn: InheritOption::default(),
             };
 
             let base = Platform {
-                node: Sourced::with_default(NODE_VERSION.clone()),
+                node: Sourced::with_default(NODE_VERSION),
                 npm: None,
+                pnpm: None,
                 yarn: None,
             };
 
             let merged = test.merge(base);
 
-            assert_eq!(merged.node.value, NODE_VERSION.clone());
+            assert_eq!(merged.node.value, NODE_VERSION);
             assert_eq!(merged.node.source, Source::Default);
         }
 
         #[test]
         fn uses_npm() {
             let test = CliPlatform {
-                node: Some(NODE_VERSION.clone()),
-                npm: InheritOption::Some(NPM_VERSION.clone()),
+                node: Some(NODE_VERSION),
+                npm: InheritOption::Some(NPM_VERSION),
+                pnpm: InheritOption::default(),
                 yarn: InheritOption::default(),
             };
 
             let base = Platform {
                 node: Sourced::with_default(Version::from((10, 10, 10))),
                 npm: Some(Sourced::with_default(Version::from((5, 6, 3)))),
+                pnpm: None,
                 yarn: None,
             };
 
             let merged = test.merge(base);
 
             let merged_npm = merged.npm.unwrap();
-            assert_eq!(merged_npm.value, NPM_VERSION.clone());
+            assert_eq!(merged_npm.value, NPM_VERSION);
             assert_eq!(merged_npm.source, Source::CommandLine);
         }
 
         #[test]
         fn inherits_npm() {
             let test = CliPlatform {
-                node: Some(NODE_VERSION.clone()),
+                node: Some(NODE_VERSION),
                 npm: InheritOption::Inherit,
+                pnpm: InheritOption::default(),
                 yarn: InheritOption::default(),
             };
 
             let base = Platform {
                 node: Sourced::with_default(Version::from((10, 10, 10))),
-                npm: Some(Sourced::with_default(NPM_VERSION.clone())),
+                npm: Some(Sourced::with_default(NPM_VERSION)),
+                pnpm: None,
                 yarn: None,
             };
 
             let merged = test.merge(base);
 
             let merged_npm = merged.npm.unwrap();
-            assert_eq!(merged_npm.value, NPM_VERSION.clone());
+            assert_eq!(merged_npm.value, NPM_VERSION);
             assert_eq!(merged_npm.source, Source::Default);
         }
 
         #[test]
         fn none_does_not_inherit_npm() {
             let test = CliPlatform {
-                node: Some(NODE_VERSION.clone()),
+                node: Some(NODE_VERSION),
                 npm: InheritOption::None,
+                pnpm: InheritOption::default(),
                 yarn: InheritOption::default(),
             };
 
             let base = Platform {
                 node: Sourced::with_default(Version::from((10, 10, 10))),
-                npm: Some(Sourced::with_default(NPM_VERSION.clone())),
+                npm: Some(Sourced::with_default(NPM_VERSION)),
+                pnpm: None,
                 yarn: None,
             };
 
@@ -384,57 +356,63 @@ mod cli_platform {
         #[test]
         fn uses_yarn() {
             let test = CliPlatform {
-                node: Some(NODE_VERSION.clone()),
+                node: Some(NODE_VERSION),
                 npm: InheritOption::default(),
-                yarn: InheritOption::Some(YARN_VERSION.clone()),
+                pnpm: InheritOption::default(),
+                yarn: InheritOption::Some(YARN_VERSION),
             };
 
             let base = Platform {
                 node: Sourced::with_default(Version::from((10, 10, 10))),
                 npm: None,
+                pnpm: None,
                 yarn: Some(Sourced::with_default(Version::from((1, 10, 3)))),
             };
 
             let merged = test.merge(base);
 
             let merged_yarn = merged.yarn.unwrap();
-            assert_eq!(merged_yarn.value, YARN_VERSION.clone());
+            assert_eq!(merged_yarn.value, YARN_VERSION);
             assert_eq!(merged_yarn.source, Source::CommandLine);
         }
 
         #[test]
         fn inherits_yarn() {
             let test = CliPlatform {
-                node: Some(NODE_VERSION.clone()),
+                node: Some(NODE_VERSION),
                 npm: InheritOption::default(),
+                pnpm: InheritOption::default(),
                 yarn: InheritOption::Inherit,
             };
 
             let base = Platform {
                 node: Sourced::with_default(Version::from((10, 10, 10))),
                 npm: None,
-                yarn: Some(Sourced::with_default(YARN_VERSION.clone())),
+                pnpm: None,
+                yarn: Some(Sourced::with_default(YARN_VERSION)),
             };
 
             let merged = test.merge(base);
 
             let merged_yarn = merged.yarn.unwrap();
-            assert_eq!(merged_yarn.value, YARN_VERSION.clone());
+            assert_eq!(merged_yarn.value, YARN_VERSION);
             assert_eq!(merged_yarn.source, Source::Default);
         }
 
         #[test]
         fn none_does_not_inherit_yarn() {
             let test = CliPlatform {
-                node: Some(NODE_VERSION.clone()),
+                node: Some(NODE_VERSION),
                 npm: InheritOption::default(),
+                pnpm: InheritOption::default(),
                 yarn: InheritOption::None,
             };
 
             let base = Platform {
                 node: Sourced::with_default(Version::from((10, 10, 10))),
                 npm: None,
-                yarn: Some(Sourced::with_default(YARN_VERSION.clone())),
+                pnpm: None,
+                yarn: Some(Sourced::with_default(YARN_VERSION)),
             };
 
             let merged = test.merge(base);
@@ -452,6 +430,7 @@ mod cli_platform {
             let cli = CliPlatform {
                 node: None,
                 npm: InheritOption::default(),
+                pnpm: InheritOption::default(),
                 yarn: InheritOption::default(),
             };
 
@@ -463,38 +442,41 @@ mod cli_platform {
         #[test]
         fn uses_cli_node() {
             let cli = CliPlatform {
-                node: Some(NODE_VERSION.clone()),
+                node: Some(NODE_VERSION),
                 npm: InheritOption::default(),
+                pnpm: InheritOption::default(),
                 yarn: InheritOption::default(),
             };
 
             let transformed: Option<Platform> = cli.into();
 
             let node = transformed.unwrap().node;
-            assert_eq!(node.value, NODE_VERSION.clone());
+            assert_eq!(node.value, NODE_VERSION);
             assert_eq!(node.source, Source::CommandLine);
         }
 
         #[test]
         fn uses_cli_npm() {
             let cli = CliPlatform {
-                node: Some(NODE_VERSION.clone()),
-                npm: InheritOption::Some(NPM_VERSION.clone()),
+                node: Some(NODE_VERSION),
+                npm: InheritOption::Some(NPM_VERSION),
+                pnpm: InheritOption::default(),
                 yarn: InheritOption::default(),
             };
 
             let transformed: Option<Platform> = cli.into();
 
             let npm = transformed.unwrap().npm.unwrap();
-            assert_eq!(npm.value, NPM_VERSION.clone());
+            assert_eq!(npm.value, NPM_VERSION);
             assert_eq!(npm.source, Source::CommandLine);
         }
 
         #[test]
         fn no_npm() {
             let cli = CliPlatform {
-                node: Some(NODE_VERSION.clone()),
+                node: Some(NODE_VERSION),
                 npm: InheritOption::None,
+                pnpm: InheritOption::default(),
                 yarn: InheritOption::default(),
             };
 
@@ -506,8 +488,9 @@ mod cli_platform {
         #[test]
         fn inherit_npm_becomes_none() {
             let cli = CliPlatform {
-                node: Some(NODE_VERSION.clone()),
+                node: Some(NODE_VERSION),
                 npm: InheritOption::Inherit,
+                pnpm: InheritOption::default(),
                 yarn: InheritOption::default(),
             };
 
@@ -519,23 +502,25 @@ mod cli_platform {
         #[test]
         fn uses_cli_yarn() {
             let cli = CliPlatform {
-                node: Some(NODE_VERSION.clone()),
+                node: Some(NODE_VERSION),
                 npm: InheritOption::default(),
-                yarn: InheritOption::Some(YARN_VERSION.clone()),
+                pnpm: InheritOption::default(),
+                yarn: InheritOption::Some(YARN_VERSION),
             };
 
             let transformed: Option<Platform> = cli.into();
 
             let yarn = transformed.unwrap().yarn.unwrap();
-            assert_eq!(yarn.value, YARN_VERSION.clone());
+            assert_eq!(yarn.value, YARN_VERSION);
             assert_eq!(yarn.source, Source::CommandLine);
         }
 
         #[test]
         fn no_yarn() {
             let cli = CliPlatform {
-                node: Some(NODE_VERSION.clone()),
+                node: Some(NODE_VERSION),
                 npm: InheritOption::default(),
+                pnpm: InheritOption::default(),
                 yarn: InheritOption::None,
             };
 
@@ -547,8 +532,9 @@ mod cli_platform {
         #[test]
         fn inherit_yarn_becomes_none() {
             let cli = CliPlatform {
-                node: Some(NODE_VERSION.clone()),
+                node: Some(NODE_VERSION),
                 npm: InheritOption::default(),
+                pnpm: InheritOption::default(),
                 yarn: InheritOption::Inherit,
             };
 

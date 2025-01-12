@@ -1,5 +1,6 @@
 use crate::support::sandbox::{
-    sandbox, DistroMetadata, NodeFixture, NpmFixture, Sandbox, Yarn1Fixture, YarnBerryFixture,
+    sandbox, DistroMetadata, NodeFixture, NpmFixture, PnpmFixture, Sandbox, Yarn1Fixture,
+    YarnBerryFixture,
 };
 use hamcrest2::assert_that;
 use hamcrest2::prelude::*;
@@ -14,6 +15,7 @@ fn platform_with_node(node: &str) -> String {
     "runtime": "{}",
     "npm": null
   }},
+  "pnpm": null,
   "yarn": null
 }}"#,
         node
@@ -27,6 +29,7 @@ fn platform_with_node_npm(node: &str, npm: &str) -> String {
     "runtime": "{}",
     "npm": "{}"
   }},
+  "pnpm": null,
   "yarn": null
 }}"#,
         node, npm
@@ -181,6 +184,36 @@ const YARN_BERRY_VERSION_FIXTURES: [DistroMetadata; 4] = [
     },
 ];
 
+const PNPM_VERSION_INFO: &str = r#"
+{
+    "name":"pnpm",
+    "dist-tags": { "latest":"7.7.1" },
+    "versions": {
+        "0.0.1": { "version":"0.0.1", "dist": { "shasum":"", "tarball":"" }},
+        "6.34.0": { "version":"6.34.0", "dist": { "shasum":"", "tarball":"" }},
+        "7.7.1": { "version":"7.7.1", "dist": { "shasum":"", "tarball":"" }}
+    }
+}
+"#;
+
+const PNPM_VERSION_FIXTURES: [DistroMetadata; 3] = [
+    DistroMetadata {
+        version: "0.0.1",
+        compressed_size: 10,
+        uncompressed_size: Some(0x0028_0000),
+    },
+    DistroMetadata {
+        version: "6.34.0",
+        compressed_size: 500,
+        uncompressed_size: Some(0x0028_0000),
+    },
+    DistroMetadata {
+        version: "7.7.1",
+        compressed_size: 518,
+        uncompressed_size: Some(0x0028_0000),
+    },
+];
+
 const NPM_VERSION_INFO: &str = r#"
 {
     "name":"npm",
@@ -298,6 +331,24 @@ fn install_npm_without_node_errors() {
 }
 
 #[test]
+fn install_pnpm_without_node_errors() {
+    let s = sandbox()
+        .pnpm_available_versions(PNPM_VERSION_INFO)
+        .distro_mocks::<PnpmFixture>(&PNPM_VERSION_FIXTURES)
+        .env("VOLTA_FEATURE_PNPM", "1")
+        .build();
+
+    assert_that!(
+        s.volta("install pnpm@7.7.1"),
+        execs()
+            .with_status(ExitCode::ConfigurationError as i32)
+            .with_stderr_contains(
+                "[..]Cannot install pnpm because the default Node version is not set."
+            )
+    );
+}
+
+#[test]
 fn install_yarn_without_node_errors() {
     let s = sandbox()
         .yarn_1_available_versions(YARN_1_VERSION_INFO)
@@ -330,5 +381,28 @@ fn install_yarn_3_without_node_errors() {
             .with_stderr_contains(
                 "[..]Cannot install Yarn because the default Node version is not set."
             )
+    );
+}
+
+#[test]
+fn install_node_with_shadowed_binary() {
+    #[cfg(windows)]
+    const SCRIPT_FILENAME: &str = "node.bat";
+    #[cfg(not(windows))]
+    const SCRIPT_FILENAME: &str = "node";
+
+    let s = sandbox()
+        .node_available_versions(NODE_VERSION_INFO)
+        .distro_mocks::<NodeFixture>(&NODE_VERSION_FIXTURES)
+        .env("VOLTA_LOGLEVEL", "info")
+        .prepend_exec_dir_to_path()
+        .executable_file(SCRIPT_FILENAME, "echo hello world")
+        .build();
+
+    assert_that!(
+        s.volta("install node"),
+        execs()
+            .with_status(ExitCode::Success as i32)
+            .with_stdout_contains("[..]is shadowed by another binary of the same name at [..]")
     );
 }

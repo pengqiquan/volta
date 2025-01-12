@@ -51,22 +51,12 @@ See the [Contributing Guide](https://docs.volta.sh/contributing/) on our website
     <tr>
       <td align="center">
         <a href="https://github.com/microsoft/TypeScript" target="_blank">
-          <img src="https://pbs.twimg.com/profile_images/1290672565690695681/0G4bie6b_400x400.jpg" alt="TypeScript" width="100" height="100">
-        </a>
-      </td>
-      <td align="center">
-        <a href="https://github.com/grafana/grafana" target="_blank">
-          <img src="https://pbs.twimg.com/profile_images/1204869696132190212/HxPK_45O_400x400.jpg" alt="Grafana" width="100" height="100">
+          <img src="https://raw.githubusercontent.com/microsoft/TypeScript-Website/v2/packages/typescriptlang-org/static/branding/ts-logo-512.svg" alt="TypeScript" width="100" height="100">
         </a>
       </td>
       <td align="center">
         <a href="https://github.com/getsentry/sentry-javascript" target="_blank">
-          <img src="https://pbs.twimg.com/profile_images/1182715338808385537/TJKJyg8V_400x400.jpg" alt="Sentry" width="100" height="100">
-        </a>
-      </td>
-      <td align="center">
-        <a href="https://github.com/snowpackjs/astro" target="_blank">
-          <img src="https://pbs.twimg.com/profile_images/1480942071208894466/4_4k1g6P_400x400.jpg" alt="Astro" width="100" height="100">
+          <img src="https://avatars.githubusercontent.com/u/1396951?s=100" alt="Sentry" width="100" height="100">
         </a>
       </td>
     </tr>

@@ -1,14 +1,13 @@
 //! Provides the `Project` type, which represents a Node project tree in
 //! the filesystem.
 
-use std::convert::{TryFrom, TryInto};
 use std::env;
 use std::ffi::OsStr;
 use std::iter::once;
 use std::path::{Path, PathBuf};
 
-use lazycell::LazyCell;
-use semver::Version;
+use node_semver::Version;
+use once_cell::unsync::OnceCell;
 
 use crate::error::{Context, ErrorKind, Fallible, VoltaError};
 use crate::layout::volta_home;
@@ -25,24 +24,24 @@ use serial::{update_manifest, Manifest, ManifestKey};
 
 /// A lazily loaded Project
 pub struct LazyProject {
-    project: LazyCell<Option<Project>>,
+    project: OnceCell<Option<Project>>,
 }
 
 impl LazyProject {
     pub fn init() -> Self {
         LazyProject {
-            project: LazyCell::new(),
+            project: OnceCell::new(),
         }
     }
 
     pub fn get(&self) -> Fallible<Option<&Project>> {
-        let project = self.project.try_borrow_with(Project::for_current_dir)?;
+        let project = self.project.get_or_try_init(Project::for_current_dir)?;
         Ok(project.as_ref())
     }
 
     pub fn get_mut(&mut self) -> Fallible<Option<&mut Project>> {
-        let project = self.project.try_borrow_mut_with(Project::for_current_dir)?;
-        Ok(project.as_mut())
+        let _ = self.project.get_or_try_init(Project::for_current_dir)?;
+        Ok(self.project.get_mut().unwrap().as_mut())
     }
 }
 
@@ -171,13 +170,15 @@ impl Project {
         })
     }
 
-    /// Does this project use Yarn Plug'n'Play?
-    // (project uses Yarn, and either of the files '.pnp.js' or '.pnp.cjs' exist)
-    pub fn is_yarn_pnp(&self) -> bool {
+    /// Yarn projects that are using PnP or pnpm linker need to use yarn run.
+    // (project uses Yarn berry if 'yarnrc.yml' exists, uses PnP if '.pnp.js' or '.pnp.cjs' exist)
+    pub fn needs_yarn_run(&self) -> bool {
         self.platform()
-            .map_or(false, |platform| platform.yarn.is_some())
-            && self.manifest_file.parent().map_or(false, |base_dir| {
-                base_dir.join(".pnp.js").exists() || base_dir.join(".pnp.cjs").exists()
+            .is_some_and(|platform| platform.yarn.is_some())
+            && self.workspace_roots().any(|x| {
+                x.join(".yarnrc.yml").exists()
+                    || x.join(".pnp.cjs").exists()
+                    || x.join(".pnp.js").exists()
             })
     }
 
@@ -191,6 +192,7 @@ impl Project {
             self.platform = Some(PlatformSpec {
                 node: version,
                 npm: None,
+                pnpm: None,
                 yarn: None,
             });
         }
@@ -208,6 +210,22 @@ impl Project {
             Ok(())
         } else {
             Err(ErrorKind::NoPinnedNodeVersion { tool: "npm".into() }.into())
+        }
+    }
+
+    /// Pins the pnpm version in this project's manifest file
+    pub fn pin_pnpm(&mut self, version: Option<Version>) -> Fallible<()> {
+        if let Some(platform) = self.platform.as_mut() {
+            update_manifest(&self.manifest_file, ManifestKey::Pnpm, version.as_ref())?;
+
+            platform.pnpm = version;
+
+            Ok(())
+        } else {
+            Err(ErrorKind::NoPinnedNodeVersion {
+                tool: "pnpm".into(),
+            }
+            .into())
         }
     }
 
@@ -233,11 +251,11 @@ fn is_node_root(dir: &Path) -> bool {
 }
 
 fn is_node_modules(dir: &Path) -> bool {
-    dir.file_name().map_or(false, |tail| tail == "node_modules")
+    dir.file_name().is_some_and(|tail| tail == "node_modules")
 }
 
 fn is_dependency(dir: &Path) -> bool {
-    dir.parent().map_or(false, is_node_modules)
+    dir.parent().is_some_and(is_node_modules)
 }
 
 fn is_project_root(dir: &Path) -> bool {
@@ -258,6 +276,7 @@ pub(crate) fn find_closest_root(mut dir: PathBuf) -> Option<PathBuf> {
 struct PartialPlatform {
     node: Option<Version>,
     npm: Option<Version>,
+    pnpm: Option<Version>,
     yarn: Option<Version>,
 }
 
@@ -266,6 +285,7 @@ impl PartialPlatform {
         PartialPlatform {
             node: self.node.or(other.node),
             npm: self.npm.or(other.npm),
+            pnpm: self.pnpm.or(other.pnpm),
             yarn: self.yarn.or(other.yarn),
         }
     }
@@ -280,6 +300,7 @@ impl TryFrom<PartialPlatform> for PlatformSpec {
         Ok(PlatformSpec {
             node,
             npm: partial.npm,
+            pnpm: partial.pnpm,
             yarn: partial.yarn,
         })
     }

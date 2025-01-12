@@ -3,16 +3,14 @@ use std::cmp::Ordering;
 use super::Spec;
 use crate::error::{ErrorKind, Fallible};
 use crate::version::{VersionSpec, VersionTag};
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 use regex::Regex;
 use validate_npm_package_name::{validate, Validity};
 
-lazy_static! {
-    static ref TOOL_SPEC_PATTERN: Regex =
-        Regex::new("^(?P<name>(?:@([^/]+?)[/])?([^/]+?))(@(?P<version>.+))?$")
-            .expect("regex is valid");
-    static ref HAS_VERSION: Regex = Regex::new(r"^[^\s]+@").expect("regex is valid");
-}
+static TOOL_SPEC_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new("^(?P<name>(?:@([^/]+?)[/])?([^/]+?))(@(?P<version>.+))?$").expect("regex is valid")
+});
+static HAS_VERSION: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[^\s]+@").expect("regex is valid"));
 
 /// Methods for parsing a Spec out of string values
 impl Spec {
@@ -20,6 +18,7 @@ impl Spec {
         match tool_name {
             "node" => Spec::Node(version),
             "npm" => Spec::Npm(version),
+            "pnpm" => Spec::Pnpm(version),
             "yarn" => Spec::Yarn(version),
             package => Spec::Package(package.to_string(), version),
         }
@@ -53,6 +52,7 @@ impl Spec {
         Ok(match name {
             "node" => Spec::Node(version),
             "npm" => Spec::Npm(version),
+            "pnpm" => Spec::Pnpm(version),
             "yarn" => Spec::Yarn(version),
             package => Spec::Package(package.into(), version),
         })
@@ -133,7 +133,7 @@ impl Spec {
     ///
     /// We want to preserve the original order as much as possible, so we treat tools in
     /// the same tool category as equal. We still need to pull Node to the front of the
-    /// list, followed by Npm / Yarn, and then Packages last.
+    /// list, followed by Npm, pnpm, Yarn, and then Packages last.
     fn sort_comparator(left: &Spec, right: &Spec) -> Ordering {
         match (left, right) {
             (Spec::Node(_), Spec::Node(_)) => Ordering::Equal,
@@ -142,6 +142,9 @@ impl Spec {
             (Spec::Npm(_), Spec::Npm(_)) => Ordering::Equal,
             (Spec::Npm(_), _) => Ordering::Less,
             (_, Spec::Npm(_)) => Ordering::Greater,
+            (Spec::Pnpm(_), Spec::Pnpm(_)) => Ordering::Equal,
+            (Spec::Pnpm(_), _) => Ordering::Less,
+            (_, Spec::Pnpm(_)) => Ordering::Greater,
             (Spec::Yarn(_), Spec::Yarn(_)) => Ordering::Equal,
             (Spec::Yarn(_), _) => Ordering::Less,
             (_, Spec::Yarn(_)) => Ordering::Greater,

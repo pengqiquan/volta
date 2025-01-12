@@ -15,7 +15,7 @@ use crate::version::VersionSpec;
 use archive::{Archive, Tarball};
 use fs_utils::ensure_containing_dir_exists;
 use log::debug;
-use semver::Version;
+use node_semver::Version;
 
 pub fn fetch(version: &Version, hooks: Option<&ToolHooks<Npm>>) -> Fallible<()> {
     let npm_dir = volta_home()?.npm_inventory_dir();
@@ -25,7 +25,7 @@ pub fn fetch(version: &Version, hooks: Option<&ToolHooks<Npm>>) -> Fallible<()> 
         Some(archive) => {
             debug!(
                 "Loading {} from cached archive at '{}'",
-                tool_version("npm", &version),
+                tool_version("npm", version),
                 cache_file.display()
             );
             (archive, None)
@@ -62,9 +62,7 @@ fn unpack_archive(archive: Box<dyn Archive>, version: &Version) -> Fallible<()> 
     let progress = progress_bar(
         archive.origin(),
         &tool_version("npm", version),
-        archive
-            .uncompressed_size()
-            .unwrap_or_else(|| archive.compressed_size()),
+        archive.compressed_size(),
     );
     let version_string = version.to_string();
 

@@ -3,6 +3,8 @@
 use std::fs::File;
 use std::path::Path;
 
+use attohttpc::header::HeaderMap;
+use headers::{ContentLength, Header, HeaderMapExt};
 use thiserror::Error;
 
 mod tarball;
@@ -18,7 +20,7 @@ pub enum ArchiveError {
     HttpError(attohttpc::StatusCode),
 
     #[error("HTTP header '{0}' not found")]
-    MissingHeaderError(String),
+    MissingHeaderError(&'static attohttpc::header::HeaderName),
 
     #[error("unexpected content length in HTTP response: {0}")]
     UnexpectedContentLengthError(u64),
@@ -42,7 +44,6 @@ pub enum Origin {
 
 pub trait Archive {
     fn compressed_size(&self) -> u64;
-    fn uncompressed_size(&self) -> Option<u64>;
 
     /// Unpacks the zip archive to the specified destination folder.
     fn unpack(
@@ -92,4 +93,13 @@ cfg_if::cfg_if! {
     } else {
         compile_error!("Unsupported OS (expected 'unix' or 'windows').");
     }
+}
+
+/// Determines the length of an HTTP response's content in bytes, using
+/// the HTTP `"Content-Length"` header.
+fn content_length(headers: &HeaderMap) -> Result<u64, ArchiveError> {
+    headers
+        .typed_get()
+        .map(|ContentLength(v)| v)
+        .ok_or_else(|| ArchiveError::MissingHeaderError(ContentLength::name()))
 }

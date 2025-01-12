@@ -1,15 +1,21 @@
+use std::env;
 use std::fmt::{self, Display};
+use std::path::PathBuf;
 
 use crate::error::{ErrorKind, Fallible};
+use crate::layout::volta_home;
 use crate::session::Session;
 use crate::style::{note_prefix, success_prefix, tool_version};
 use crate::sync::VoltaLock;
 use crate::version::VersionSpec;
+use crate::VOLTA_FEATURE_PNPM;
+use cfg_if::cfg_if;
 use log::{debug, info};
 
 pub mod node;
 pub mod npm;
 pub mod package;
+pub mod pnpm;
 mod registry;
 mod serial;
 pub mod yarn;
@@ -19,35 +25,35 @@ pub use node::{
 };
 pub use npm::{BundledNpm, Npm};
 pub use package::{BinConfig, Package, PackageConfig, PackageManifest};
+pub use pnpm::Pnpm;
 pub use registry::PackageDetails;
 pub use yarn::Yarn;
 
-#[inline]
-fn debug_already_fetched<T: Display + Sized>(tool: T) {
+fn debug_already_fetched<T: Display>(tool: T) {
     debug!("{} has already been fetched, skipping download", tool);
 }
 
-#[inline]
-fn info_installed<T: Display + Sized>(tool: T) {
-    info!("{} installed and set {} as default", success_prefix(), tool);
+fn info_installed<T: Display>(tool: T) {
+    info!("{} installed and set {tool} as default", success_prefix());
 }
 
-#[inline]
-fn info_fetched<T: Display + Sized>(tool: T) {
-    info!("{} fetched {}", success_prefix(), tool);
+fn info_fetched<T: Display>(tool: T) {
+    info!("{} fetched {tool}", success_prefix());
 }
 
-#[inline]
-fn info_pinned<T: Display + Sized>(tool: T) {
-    info!("{} pinned {} in package.json", success_prefix(), tool);
+fn info_pinned<T: Display>(tool: T) {
+    info!("{} pinned {tool} in package.json", success_prefix());
 }
 
-#[inline]
-fn info_project_version<T: Display + Sized>(tool: T) {
+fn info_project_version<P, D>(project_version: P, default_version: D)
+where
+    P: Display,
+    D: Display,
+{
     info!(
-        "{} you are using {} in the current project",
-        note_prefix(),
-        tool
+        r#"{} you are using {project_version} in the current project; to
+         instead use {default_version}, run `volta pin {default_version}`"#,
+        note_prefix()
     );
 }
 
@@ -67,6 +73,7 @@ pub trait Tool: Display {
 pub enum Spec {
     Node(VersionSpec),
     Npm(VersionSpec),
+    Pnpm(VersionSpec),
     Yarn(VersionSpec),
     Package(String, VersionSpec),
 }
@@ -83,6 +90,19 @@ impl Spec {
                 Some(version) => Ok(Box::new(Npm::new(version))),
                 None => Ok(Box::new(BundledNpm)),
             },
+            Spec::Pnpm(version) => {
+                // If the pnpm feature flag is set, use the special-cased package manager logic
+                // to handle resolving (and ultimately fetching / installing) pnpm. If not, then
+                // fall back to the global package behavior, which was the case prior to pnpm
+                // support being added
+                if env::var_os(VOLTA_FEATURE_PNPM).is_some() {
+                    let version = pnpm::resolve(version, session)?;
+                    Ok(Box::new(Pnpm::new(version)))
+                } else {
+                    let package = Package::new("pnpm".to_owned(), version)?;
+                    Ok(Box::new(package))
+                }
+            }
             Spec::Yarn(version) => {
                 let version = yarn::resolve(version, session)?;
                 Ok(Box::new(Yarn::new(version)))
@@ -109,6 +129,16 @@ impl Spec {
                 feature: "Uninstalling npm".into(),
             }
             .into()),
+            Spec::Pnpm(_) => {
+                if env::var_os(VOLTA_FEATURE_PNPM).is_some() {
+                    Err(ErrorKind::Unimplemented {
+                        feature: "Uninstalling pnpm".into(),
+                    }
+                    .into())
+                } else {
+                    package::uninstall("pnpm")
+                }
+            }
             Spec::Yarn(_) => Err(ErrorKind::Unimplemented {
                 feature: "Uninstalling yarn".into(),
             }
@@ -122,6 +152,7 @@ impl Spec {
         match self {
             Spec::Node(_) => "Node",
             Spec::Npm(_) => "npm",
+            Spec::Pnpm(_) => "pnpm",
             Spec::Yarn(_) => "Yarn",
             Spec::Package(name, _) => name,
         }
@@ -133,6 +164,7 @@ impl Display for Spec {
         let s = match self {
             Spec::Node(ref version) => tool_version("node", version),
             Spec::Npm(ref version) => tool_version("npm", version),
+            Spec::Pnpm(ref version) => tool_version("pnpm", version),
             Spec::Yarn(ref version) => tool_version("yarn", version),
             Spec::Package(ref name, ref version) => tool_version(name, version),
         };
@@ -191,4 +223,72 @@ fn registry_fetch_error(
     let tool = tool.as_ref().to_string();
     let from_url = from_url.as_ref().to_string();
     || ErrorKind::RegistryFetchError { tool, from_url }
+}
+
+cfg_if!(
+    if #[cfg(windows)] {
+        const PATH_VAR_NAME: &str = "Path";
+    } else {
+        const PATH_VAR_NAME: &str = "PATH";
+    }
+);
+
+/// Check if a newly-installed shim is first on the PATH. If it isn't, we want to inform the user
+/// that they'll want to move it to the start of PATH to make sure things work as expected.
+pub fn check_shim_reachable(shim_name: &str) {
+    let Some(expected_dir) = find_expected_shim_dir(shim_name) else {
+        return;
+    };
+
+    let Ok(resolved) = which::which(shim_name) else {
+        info!(
+            "{} cannot find command {}. Please ensure that {} is available on your {}.",
+            note_prefix(),
+            shim_name,
+            expected_dir.display(),
+            PATH_VAR_NAME,
+        );
+        return;
+    };
+
+    if !resolved.starts_with(&expected_dir) {
+        info!(
+            "{} {} is shadowed by another binary of the same name at {}. To ensure your commands work as expected, please move {} to the start of your {}.",
+            note_prefix(),
+            shim_name,
+            resolved.display(),
+            expected_dir.display(),
+            PATH_VAR_NAME
+        );
+    }
+}
+
+/// Locate the base directory for the relevant shim in the Volta directories.
+///
+/// On Unix, all of the shims, including the default ones, are installed in `VoltaHome::shim_dir`
+#[cfg(unix)]
+fn find_expected_shim_dir(_shim_name: &str) -> Option<PathBuf> {
+    volta_home().ok().map(|home| home.shim_dir().to_owned())
+}
+
+/// Locate the base directory for the relevant shim in the Volta directories.
+///
+/// On Windows, the default shims (node, npm, yarn, etc.) are installed in `Program Files`
+/// alongside the Volta binaries. To determine where we should be checking, we first look for the
+/// relevant shim inside of `VoltaHome::shim_dir`. If it's there, we use that directory. If it
+/// isn't, we assume it must be a default shim and return `VoltaInstall::root`, which is where
+/// Volta itself is installed.
+#[cfg(windows)]
+fn find_expected_shim_dir(shim_name: &str) -> Option<PathBuf> {
+    use crate::layout::volta_install;
+
+    let home = volta_home().ok()?;
+
+    if home.shim_file(shim_name).exists() {
+        Some(home.shim_dir().to_owned())
+    } else {
+        volta_install()
+            .ok()
+            .map(|install| install.root().to_owned())
+    }
 }

@@ -9,233 +9,181 @@ on:
 name: Production
 
 jobs:
-  centos:
-    name: Build - CentOS / RHEL
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out code
-        uses: actions/checkout@v2
-      - name: Set up docker image
-        run: docker build -t volta .
-        working-directory: ./ci/docker-centos
-      - name: Compile and package Volta
-        run: docker run --volume ${PWD}:/root/workspace --workdir /root/workspace --rm --init --tty volta /root/workspace/ci/build-and-package.sh volta-centos
-      - name: Confirm correct OpenSSL Version
-        run: |
-          objdump -p target/release/volta
-          readelf -d target/release/volta
-      - name: Upload release artifact
-        uses: actions/upload-artifact@v2
-        with:
-          name: linux-centos
-          path: target/release/volta-centos.tar.gz
-
-  linux-ssl-3:
-    name: Build - OpenSSL 3
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out code
-        uses: actions/checkout@v2
-      - name: Set up docker image
-        run: docker build -t volta .
-        working-directory: ./ci/docker-ubuntu
-      - name: Compile and package Volta
-        run: docker run --volume ${PWD}:/root/workspace --workdir /root/workspace --rm --init --tty volta /root/workspace/ci/build-and-package.sh volta-openssl-3
-      - name: Confirm correct OpenSSL Version
-        run: |
-          objdump -p target/release/volta
-          readelf -d target/release/volta
-      - name: Upload release artifact
-        uses: actions/upload-artifact@v2
-        with:
-          name: linux-openssl-3
-          path: target/release/volta-openssl-3.tar.gz
-
   linux:
-    strategy:
-      matrix:
-        openssl:
-          - 1_1_0
-          - 1_0_1
-    name: Build - OpenSSL ${{ matrix.openssl }}
+    name: Build - Linux
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
-        uses: actions/checkout@v2
-      - name: Check out OpenSSL
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
+      - name: Set up docker buildx
+        uses: docker/setup-buildx-action@v2
+      - name: Build docker image
+        uses: docker/build-push-action@v3
         with:
-          repository: openssl/openssl
-          ref: OpenSSL_${{ matrix.openssl }}-stable
-          path: openssl
-      - name: Set up docker image
-        run: docker build -t volta .
-        working-directory: ./ci/docker-centos
-      - name: Compile and package OpenSSL & Volta
-        run: docker run --volume ${PWD}:/root/workspace --workdir /root/workspace --rm --init --tty volta /root/workspace/ci/build-with-openssl.sh volta-openssl-${{ matrix.openssl }}
-      - name: Confirm OpenSSL Version
-        run: |
-          objdump -p target/release/volta
-          readelf -d target/release/volta
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          context: ./ci/docker
+          push: false
+          load: true
+          tags: volta
+      - name: Compile and package Volta
+        run: docker run --volume ${PWD}:/root/workspace --workdir /root/workspace --rm --init --tty volta /root/workspace/ci/build-linux.sh volta-linux
       - name: Upload release artifact
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
-          name: linux-openssl-${{ matrix.openssl }}
-          path: target/release/volta-openssl-${{ matrix.openssl }}.tar.gz
+          name: linux
+          path: target/release/volta-linux.tar.gz
+
+  linux-arm:
+    name: Build - Linux ARM
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+      - name: Install cross-rs
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+      - name: Compile Volta
+        run: cross build --release --target aarch64-unknown-linux-gnu
+      - name: Package Volta
+        run: |
+          cd target/aarch64-unknown-linux-gnu/release && tar -zcvf "volta-linux-arm.tar.gz" volta volta-shim volta-migrate
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-arm
+          path: target/aarch64-unknown-linux-gnu/release/volta-linux-arm.tar.gz
 
   macos:
     name: Build - MacOS
     runs-on: macos-latest
     steps:
       - name: Check out code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
       - name: Set up cargo
-        uses: actions-rs/toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          profile: minimal
-          toolchain: stable
-          override: true
+          target: aarch64-apple-darwin,x86_64-apple-darwin
       - name: Compile and package Volta
-        run: ./ci/build-and-package.sh volta-macos
+        run: ./ci/build-macos.sh volta-macos
       - name: Upload release artifact
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: macos
-          path: target/release/volta-macos.tar.gz
-
-  macos-aarch64:
-    name: Build - MacOS (ARM)
-    runs-on: macos-latest
-    steps:
-      - name: Check out code
-        uses: actions/checkout@v2
-      - name: Set up cargo
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          target: aarch64-apple-darwin
-          override: true
-      - name: Compile and package Volta
-        run: ./ci/build-for-arm.sh volta-macos-aarch64
-      - name: Upload release artifact
-        uses: actions/upload-artifact@v2
-        with:
-          name: macos-aarch64
-          path: target/aarch64-apple-darwin/release/volta-macos-aarch64.tar.gz
+          path: target/universal-apple-darwin/release/volta-macos.tar.gz
 
   windows:
     name: Build - Windows
     runs-on: windows-latest
     steps:
       - name: Check out code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
       - name: Set up cargo
-        uses: actions-rs/toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          profile: minimal
-          toolchain: stable
-          override: true
+          rustflags: ""
       - name: Add cargo-wix subcommand
-        uses: actions-rs/cargo@v1
-        with:
-          command: install
-          args: cargo-wix
+        run: cargo install --locked cargo-wix
       - name: Compile and package installer
-        uses: actions-rs/cargo@v1
-        with:
-          command: wix
-          args: --nocapture --package volta --output target\wix\volta-windows.msi
-      - name: Load Certificate File
-        id: certificate_file
-        if: github.event_name == 'push'
-        uses: timheuer/base64-to-file@v1
-        with:
-          fileName: "volta-certificate.pfx"
-          encodedString: ${{ secrets.INSTALLER_CERTIFICATE }}
-      - name: Sign Installer
-        if: github.event_name == 'push'
-        env:
-          CERTIFICATE_FILE: ${{ steps.certificate_file.outputs.filePath }}
-          CERTIFICATE_PASSWORD: ${{ secrets.INSTALLER_CERTIFICATE_PASSWORD }}
         run: |
-          & "C:\Program Files (x86)\Windows Kits\10\bin\10.0.19041.0\x86\signtool.exe" sign /fd sha256 /f "$env:CERTIFICATE_FILE" /p "$env:CERTIFICATE_PASSWORD" /tr http://ts.ssl.com /td sha256 /d "Volta: Start Your Engines" /du "https://volta.sh" "target\wix\volta-windows.msi"
-      - name: Verify Signature
-        if: github.event_name == 'push'
-        run: |
-          & "C:\Program Files (x86)\Windows Kits\10\bin\10.0.19041.0\x86\signtool.exe" verify /pa "target\wix\volta-windows.msi"
+          cargo wix --nocapture --package volta --output target\wix\volta-windows.msi
       - name: Create zip of binaries
         run: powershell Compress-Archive volta*.exe volta-windows.zip
         working-directory: ./target/release
       - name: Upload installer
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: windows-installer
           path: target/wix/volta-windows.msi
       - name: Upload zip
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: windows-zip
           path: target/release/volta-windows.zip
+
+  windows-arm:
+    name: Build - Windows ARM
+    runs-on: windows-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+      - name: Set up cargo
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: aarch64-pc-windows-msvc
+          rustflags: ""
+      - name: Add cargo-wix subcommand
+        run: cargo install --locked cargo-wix
+      - name: Compile and package installer
+        run: |
+          cargo wix --nocapture --package volta --target aarch64-pc-windows-msvc --output target\wix\volta-windows-arm.msi
+      - name: Create zip of binaries
+        run: powershell Compress-Archive volta*.exe volta-windows-arm.zip
+        working-directory: ./target/aarch64-pc-windows-msvc/release
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-arm
+          path: target/wix/volta-windows-arm.msi
+      - name: Upload zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-zip-arm
+          path: target/aarch64-pc-windows-msvc/release/volta-windows-arm.zip
 
   release:
     name: Publish release
     runs-on: ubuntu-latest
     needs:
-      - centos
       - linux
-      - linux-ssl-3
+      - linux-arm
       - macos
-      - macos-aarch64
       - windows
+      - windows-arm
     if: github.event_name == 'push'
     steps:
       - name: Check out code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
       - name: Determine release version
         id: release_info
         env:
           TAG: ${{ github.ref }}
-        run: echo "::set-output name=version::${TAG:11}"
-      - name: Fetch CentOS artifact
-        uses: actions/download-artifact@v2
+        run: echo "version=${TAG:11}" >> $GITHUB_OUTPUT
+      - name: Fetch Linux artifact
+        uses: actions/download-artifact@v4
         with:
-          name: linux-centos
+          name: linux
           path: release
-      - name: Fetch OpenSSL 3 artifact
-        uses: actions/download-artifact@v2
+      - name: Fetch Linux ARM artifact
+        uses: actions/download-artifact@v4
         with:
-          name: linux-openssl-3
-          path: release
-      - name: Fetch OpenSSL 1.0.* artifact
-        uses: actions/download-artifact@v2
-        with:
-          name: linux-openssl-1_0_1
-          path: release
-      - name: Fetch OpenSSL 1.1.* artifact
-        uses: actions/download-artifact@v2
-        with:
-          name: linux-openssl-1_1_0
+          name: linux-arm
           path: release
       - name: Fetch MacOS artifact
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v4
         with:
           name: macos
           path: release
-      - name: Fetch MacOS (ARM) artifact
-        uses: actions/download-artifact@v2
-        with:
-          name: macos-aarch64
-          path: release
       - name: Fetch Windows installer
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v4
         with:
           name: windows-installer
           path: release
       - name: Fetch Windows zip
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v4
         with:
           name: windows-zip
+          path: release
+      - name: Fetch Windows ARM installer
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-installer-arm
+          path: release
+      - name: Fetch Windows ARM zip
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-zip-arm
           path: release
       - name: Show release artifacts
         run: ls -la release
@@ -248,41 +196,23 @@ jobs:
           tag_name: ${{ github.ref }}
           release_name: ${{ github.ref }}
           draft: true
-      - name: Upload CentOS artifact
+      - name: Upload Linux artifact
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./release/volta-centos.tar.gz
-          asset_name: volta-${{ steps.release_info.outputs.version }}-linux-openssl-rhel.tar.gz
+          asset_path: ./release/volta-linux.tar.gz
+          asset_name: volta-${{ steps.release_info.outputs.version }}-linux.tar.gz
           asset_content_type: application/gzip
-      - name: Upload OpenSSL 3 artifact
+      - name: Upload Linux ARM artifact
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./release/volta-openssl-3.tar.gz
-          asset_name: volta-${{ steps.release_info.outputs.version }}-linux-openssl-3.0.tar.gz
-          asset_content_type: application/gzip
-      - name: Upload OpenSSL 1.0.* artifact
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./release/volta-openssl-1_0_1.tar.gz
-          asset_name: volta-${{ steps.release_info.outputs.version }}-linux-openssl-1.0.tar.gz
-          asset_content_type: application/gzip
-      - name: Upload OpenSSL 1.1.* artifact
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./release/volta-openssl-1_1_0.tar.gz
-          asset_name: volta-${{ steps.release_info.outputs.version }}-linux-openssl-1.1.tar.gz
+          asset_path: ./release/volta-linux-arm.tar.gz
+          asset_name: volta-${{ steps.release_info.outputs.version }}-linux-arm.tar.gz
           asset_content_type: application/gzip
       - name: Upload MacOS artifact
         uses: actions/upload-release-asset@v1
@@ -292,15 +222,6 @@ jobs:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: ./release/volta-macos.tar.gz
           asset_name: volta-${{ steps.release_info.outputs.version }}-macos.tar.gz
-          asset_content_type: application/gzip
-      - name: Upload MacOS (ARM) artifact
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./release/volta-macos-aarch64.tar.gz
-          asset_name: volta-${{ steps.release_info.outputs.version }}-macos-aarch64.tar.gz
           asset_content_type: application/gzip
       - name: Upload Windows installer
         uses: actions/upload-release-asset@v1
@@ -319,6 +240,24 @@ jobs:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: ./release/volta-windows.zip
           asset_name: volta-${{ steps.release_info.outputs.version }}-windows.zip
+          asset_content_type: application/zip
+      - name: Upload Windows ARM installer
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./release/volta-windows-arm.msi
+          asset_name: volta-${{ steps.release_info.outputs.version }}-windows-arm64.msi
+          asset_content_type: application/x-msi
+      - name: Upload Windows ARM zip
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./release/volta-windows-arm.zip
+          asset_name: volta-${{ steps.release_info.outputs.version }}-windows-arm64.zip
           asset_content_type: application/zip
       - name: Upload manifest file
         uses: actions/upload-release-asset@v1

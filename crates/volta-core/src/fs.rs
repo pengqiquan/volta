@@ -9,7 +9,7 @@ use std::path::Path;
 use crate::error::{Context, ErrorKind, Fallible};
 use crate::layout::volta_home;
 use retry::delay::Fibonacci;
-use retry::{retry, Error as RetryError, OperationResult};
+use retry::{retry, OperationResult};
 use tempfile::{tempdir_in, NamedTempFile, TempDir};
 
 /// Opens a file, creating it if it doesn't exist
@@ -105,7 +105,7 @@ where
 /// Creates a NamedTempFile in the Volta tmp directory
 pub fn create_staging_file() -> Fallible<NamedTempFile> {
     let tmp_dir = volta_home()?.tmp_dir();
-    NamedTempFile::new_in(&tmp_dir).with_context(|| ErrorKind::CreateTempFileError {
+    NamedTempFile::new_in(tmp_dir).with_context(|| ErrorKind::CreateTempFileError {
         in_dir: tmp_dir.to_owned(),
     })
 }
@@ -113,7 +113,7 @@ pub fn create_staging_file() -> Fallible<NamedTempFile> {
 /// Creates a staging directory in the Volta tmp directory
 pub fn create_staging_dir() -> Fallible<TempDir> {
     let tmp_root = volta_home()?.tmp_dir();
-    tempdir_in(&tmp_root).with_context(|| ErrorKind::CreateTempDirError {
+    tempdir_in(tmp_root).with_context(|| ErrorKind::CreateTempDirError {
         in_dir: tmp_root.to_owned(),
     })
 }
@@ -138,7 +138,7 @@ where
     D: AsRef<Path>,
 {
     #[cfg(windows)]
-    return std::os::windows::fs::symlink_dir(src, dest);
+    return junction::create(src, dest);
 
     #[cfg(unix)]
     return std::os::unix::fs::symlink(src, dest);
@@ -190,8 +190,5 @@ where
             },
         }
     })
-    .map_err(|e| match e {
-        RetryError::Operation { error, .. } => error,
-        RetryError::Internal(message) => io::Error::new(io::ErrorKind::Other, message),
-    })
+    .map_err(|e| e.error)
 }

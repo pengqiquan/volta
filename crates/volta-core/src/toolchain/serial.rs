@@ -1,9 +1,8 @@
 use crate::error::{Context, ErrorKind, Fallible, VoltaError};
 use crate::platform::PlatformSpec;
 use crate::version::{option_version_serde, version_serde};
-use semver::Version;
+use node_semver::Version;
 use serde::{Deserialize, Serialize};
-use std::convert::TryFrom;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct NodeVersion {
@@ -19,6 +18,9 @@ pub struct Platform {
     pub node: Option<NodeVersion>,
     #[serde(default)]
     #[serde(with = "option_version_serde")]
+    pub pnpm: Option<Version>,
+    #[serde(default)]
+    #[serde(with = "option_version_serde")]
     pub yarn: Option<Version>,
 }
 
@@ -29,6 +31,7 @@ impl Platform {
                 runtime: source.node.clone(),
                 npm: source.npm.clone(),
             }),
+            pnpm: source.pnpm.clone(),
             yarn: source.yarn.clone(),
         }
     }
@@ -55,9 +58,11 @@ impl TryFrom<String> for Platform {
 impl From<Platform> for Option<PlatformSpec> {
     fn from(platform: Platform) -> Option<PlatformSpec> {
         let yarn = platform.yarn;
+        let pnpm = platform.pnpm;
         platform.node.map(|node_version| PlatformSpec {
             node: node_version.runtime,
             npm: node_version.npm,
+            pnpm,
             yarn,
         })
     }
@@ -68,7 +73,7 @@ pub mod tests {
 
     use super::*;
     use crate::platform;
-    use semver::Version;
+    use node_semver::Version;
 
     // NOTE: serde_json is required with the "preserve_order" feature in Cargo.toml,
     // so these tests will serialized/deserialize in a predictable order
@@ -78,6 +83,7 @@ pub mod tests {
     "runtime": "4.5.6",
     "npm": "7.8.9"
   },
+  "pnpm": "3.2.1",
   "yarn": "1.2.3"
 }"#;
 
@@ -86,6 +92,7 @@ pub mod tests {
         let json_str = BASIC_JSON_STR.to_string();
         let platform = Platform::try_from(json_str).expect("could not parse JSON string");
         let expected_platform = Platform {
+            pnpm: Some(Version::parse("3.2.1").expect("could not parse version")),
             yarn: Some(Version::parse("1.2.3").expect("could not parse version")),
             node: Some(NodeVersion {
                 runtime: Version::parse("4.5.6").expect("could not parse version"),
@@ -101,6 +108,7 @@ pub mod tests {
         let platform = Platform::try_from(json_str).expect("could not parse JSON string");
         let expected_platform = Platform {
             node: None,
+            pnpm: None,
             yarn: None,
         };
         assert_eq!(platform, expected_platform);
@@ -109,6 +117,7 @@ pub mod tests {
     #[test]
     fn test_into_json() {
         let platform_spec = platform::PlatformSpec {
+            pnpm: Some(Version::parse("3.2.1").expect("could not parse version")),
             yarn: Some(Version::parse("1.2.3").expect("could not parse version")),
             node: Version::parse("4.5.6").expect("could not parse version"),
             npm: Some(Version::parse("7.8.9").expect("could not parse version")),
